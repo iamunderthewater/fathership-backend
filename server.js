@@ -36,14 +36,14 @@ const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
 let emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/; // regex for email
 let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for password
 
-app.use(cors({
+server.use(cors({
   origin: 'https://bright-salmiakki-130fdf.netlify.app',
   credentials: true
 }))
 
-app.use(express.json())
+server.use(express.json())
 
-app.options('*', cors()) // handle preflight requests
+server.options('*', cors()) // handle preflight requests
 
 mongoose.connect(process.env.DB_LOCATION, {
     autoIndex: true
