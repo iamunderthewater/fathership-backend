@@ -88,7 +88,7 @@ const verifyJWT = (req, res, next) => {
         const userDoc = await User.exists({ _id: user.id });
 
         if(!userDoc){ return res.status(403).json({ error: "No user found" }) }
-
+        
         req.user = user.id
         req.super_admin = user.super_admin;
 
@@ -364,60 +364,78 @@ server.post("/change-password", verifyJWT, async (req, res) => {
 
 }) 
 
-server.post('/latest-blogs', (req, res) => {
+server.post('/latest-blogs', async (req, res) => {
+    try {
+        let { page, birthdate, gender, interests } = req.body;
 
-    let { page, birthdate, gender } = req.body;
+        const ageRanges = getAgeRange(birthdate);
+        const genderRanges = getGenderRange(gender);
 
-    const ageRanges = getAgeRange(birthdate);
-    const genderRanges = getGenderRange(gender);
-
-    const findQuery = {
+        const baseQuery = {
         draft: false,
-        targetGender: { $in: genderRanges },
-        ageRating: { $in: ageRanges }
-    };
+        targetGender: { $in: genderRanges, $exists: true },
+        ageRating: { $in: ageRanges, $exists: true }
+        };
 
-    let maxLimit = 5;
+        const maxLimit = 5;
+        const skipCount = (page - 1) * maxLimit;
 
-    Blog.find(findQuery)
-    .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
-    .populate("category", "name")
-    .sort({ "publishedAt": -1 })
-    .select("blog_id title des banner activity publishedAt -_id")
-    .skip((page - 1) * maxLimit)
-    .limit(maxLimit)
-    .then(blogs => {
-        return res.status(200).json({ blogs })
-    })
-    .catch(err => {
-        return res.status(500).json({ error: err.message })
-    })
+        // 1️⃣ Blogs that match interests
+        const interestBlogs = await Blog.find({
+        ...baseQuery,
+        interests: { $in: interests }
+        })
+        .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
+        .populate("category", "name")
+        .sort({ publishedAt: -1 })
+        .select("blog_id title des banner activity publishedAt -_id ageRating targetGender")
+        .skip(skipCount)
+        .limit(maxLimit);
 
-})
+        // 2️⃣ Blogs that match age+gender but NOT interests
+        const otherBlogs = await Blog.find({
+        ...baseQuery,
+        interests: { $nin: interests }
+        })
+        .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
+        .populate("category", "name")
+        .sort({ publishedAt: -1 })
+        .select("blog_id title des banner activity publishedAt -_id ageRating targetGender")
+        .skip(skipCount)
+        .limit(maxLimit);
 
-server.post("/all-latest-blogs-count", (req, res) => {
+        // 3️⃣ Combine them — interests first
+        const blogs = [...interestBlogs, ...otherBlogs];
 
-    const { birthdate, gender } = req.body;
+        return res.status(200).json({ blogs });
 
-    const ageRanges = getAgeRange(birthdate);
-    const genderRanges = getGenderRange(gender);
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+    }
+});
 
-    const findQuery = {
+server.post("/all-latest-blogs-count", async (req, res) => {
+    try {
+        const { birthdate, gender } = req.body;
+
+        const ageRanges = getAgeRange(birthdate);
+        const genderRanges = getGenderRange(gender);
+
+        const baseQuery = {
         draft: false,
-        targetGender: { $in: genderRanges },
-        ageRating: { $in: ageRanges }
-    };
+        targetGender: { $in: genderRanges, $exists: true },
+        ageRating: { $in: ageRanges, $exists: true }
+        };
 
-    Blog.countDocuments(findQuery)
-    .then(count => {
-        return res.status(200).json({ totalDocs: count })
-    })
-    .catch(err => {
-        console.log(err.message);
-        return res.status(500).json({ error: err.message })
-    })
+        const totalDocs = await Blog.countDocuments(baseQuery);
+        return res.status(200).json({ totalDocs });
 
-})
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+    }
+});
 
 server.get("/trending-blogs", (req, res) => {
 
@@ -2495,6 +2513,70 @@ server.post("/super-admin/ban-user", verifyJWT, async (req, res) => {
         return res.status(200).json({ status: "done" })
         
     } catch(err) {
+        console.log(err);
+        return res.status(500).json({ error: err.message })
+    }
+
+})
+
+server.post("/stats", verifyJWT, async (req, res) => {
+
+    const super_admin = req.super_admin;
+
+    try {
+
+        if(!super_admin){
+            return res.status(403).json({ error: "not allowed" })
+        }
+
+        // user count, blog count, report counts, communities count, userdocs with createdAt data, earning count
+
+        const usersCount = await User.countDocuments({});
+        const blogsCount = await Blog.countDocuments({});
+        const reportsCount = await Report.countDocuments({});
+        const communitiesCount = await Community.countDocuments({});
+
+        const totalEarning = usersCount * 5;
+
+        const now = new Date();
+        const past30Days = new Date();
+        past30Days.setDate(now.getDate() - 30);
+
+        // Fetch users created in last 28 days, only joinedAt (or createdAt) field
+        const recentUsers = await User.aggregate([
+              { $match: { joinedAt: { $gte: past30Days } } },
+                {
+                    $group: {
+                    _id: {
+                        $dateTrunc: {
+                        date: "$joinedAt",
+                        unit: "day"
+                        }
+                    },
+                    count: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                    _id: 0,
+                    date: { $dateToString: { format: "%Y-%m-%d", date: "$_id" } },
+                    count: 1
+                    }
+                },
+                { $sort: { date: 1 } }
+            ]);
+
+
+        return res.status(200).json({
+            usersCount,
+            blogsCount,
+            reportsCount,
+            communitiesCount,
+            totalEarning,
+            recentUsers
+        })
+
+    } catch(err){
         console.log(err);
         return res.status(500).json({ error: err.message })
     }
