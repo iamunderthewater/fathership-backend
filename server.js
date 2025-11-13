@@ -374,9 +374,9 @@ server.post('/latest-blogs', async (req, res) => {
         const genderRanges = getGenderRange(gender);
 
         const baseQuery = {
-        draft: false,
-        targetGender: { $in: genderRanges, $exists: true },
-        ageRating: { $in: ageRanges, $exists: true }
+            draft: false,
+            targetGender: { $in: genderRanges, $exists: true },
+            ageRating: { $in: ageRanges, $exists: true }
         };
 
         const maxLimit = 5;
@@ -384,8 +384,8 @@ server.post('/latest-blogs', async (req, res) => {
 
         // 1️⃣ Blogs that match interests
         const interestBlogs = await Blog.find({
-        ...baseQuery,
-        interests: { $in: interests }
+            ...baseQuery,
+            interests: { $in: interests }
         })
         .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
         .populate("category", "name")
@@ -396,8 +396,8 @@ server.post('/latest-blogs', async (req, res) => {
 
         // 2️⃣ Blogs that match age+gender but NOT interests
         const otherBlogs = await Blog.find({
-        ...baseQuery,
-        interests: { $nin: interests }
+            ...baseQuery,
+            interests: { $nin: interests }
         })
         .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
         .populate("category", "name")
@@ -1744,9 +1744,9 @@ server.post("/community-posts", async(req, res) => {
 
         let skipDocs = ( page - 1 ) * maxLimit;
 
-        if(deletedDocCount){
-            skipDocs -= deletedDocCount;
-        }
+        if (deletedDocCount) {
+  skipDocs = Math.max(0, skipDocs - deletedDocCount);
+}
 
         // get community doc id;
 
@@ -1939,7 +1939,7 @@ server.get("/top-categories", async (req, res) => {
 
         limit = (limit !== undefined && limit > 0) ? limit : 10;
 
-        let categories = await Category.find({}).select("name").sort({ blog_count: -1 }).limit(limit);
+        let categories = await Category.find({}).select("name").sort({ blog_count: -1, _id: 1 }).limit(limit);
 
         // categories = categories.map((item) => item.name);
 
@@ -1954,7 +1954,7 @@ server.get("/top-categories", async (req, res) => {
 server.get("/categories", async (req, res) => {
     try {
 
-        let categories = await Category.find({}).select("name").sort({ blog_count: -1 })
+        let categories = await Category.find({}).select("name").sort({ blog_count: -1, _id: 1 })
 
         categories = categories.map((item) => item.name)
 
@@ -2015,15 +2015,14 @@ server.post("/super-admin/categories", verifyJWT, async (req, res) => {
 
         let skipDocs = ( page - 1 ) * maxLimit;
 
-        if(deletedDocCount){
-            skipDocs -= deletedDocCount;
+        if (deletedDocCount) {
+            skipDocs = Math.max(0, skipDocs - deletedDocCount);
         }
 
         const categories = await Category.find({})
+                            .sort({ blog_count: -1, _id: 1 })
                             .skip(skipDocs)
                             .limit(maxLimit)
-                            .sort({ blog_count: -1 })
-                            .select("-__v");
 
         return res.status(200).json({ categories })
 
@@ -2275,8 +2274,8 @@ server.post("/super-admin/reports", verifyJWT, async (req, res) => {
             findQuery.type = filter[filter.length-1]=='s' ? filter.substring(0, filter.length-1) : filter; // removing 's' from the filter got from the frontend
         }
 
-        if(deletedDocCount){
-            skipDocs -= deletedDocCount;
+        if (deletedDocCount) {
+            skipDocs = Math.max(0, skipDocs - deletedDocCount);
         }
 
         const reports = await Report.find(findQuery)
