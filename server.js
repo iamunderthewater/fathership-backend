@@ -41,6 +41,8 @@ server.use(cors({
   credentials: true
 }))
 
+// server.use(cors());
+
 server.use(express.json())
 
 server.options('*', cors()) // handle preflight requests
@@ -1473,7 +1475,7 @@ server.post("/search-communities", async (req, res) => {
                             },
                             {
                                 $project: {
-                                    _id: 0,
+                                    _id: 1,
                                     name: 1,
                                     image: 1,
                                     membersCount: 1,
@@ -1820,6 +1822,7 @@ server.post("/delete-post", verifyJWT, async (req, res) => {
 server.post("/delete-community", verifyJWT, async (req, res) => {
 
     const user = req.user;
+    const super_admin = req.super_admin
 
     try {
 
@@ -1833,7 +1836,7 @@ server.post("/delete-community", verifyJWT, async (req, res) => {
             return res.status(200).json({ status: 'done' })
         }
 
-        if(communityDoc.admin != user){
+        if(communityDoc.admin != user && !super_admin){
             return res.status(400).json({ error: 'you are not allowed to perform this action' })
         }
 
